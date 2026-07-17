@@ -21,12 +21,12 @@ st.subheader(
 
 st.write(
     """
-    A ferramenta identifica as audiências agendadas no TRT
-    relativas aos processos da carteira e compara cada evento
-    com a pauta interna.
+    A ferramenta compara individualmente cada audiência
+    agendada no TRT com os eventos da pauta interna.
 
-    O resultado distingue processos ausentes, divergências
-    de data, divergências de horário e audiências conferidas.
+    Um mesmo processo pode possuir duas ou mais audiências.
+    Cada registro da pauta interna é utilizado apenas uma vez
+    na conciliação.
     """
 )
 
@@ -86,7 +86,7 @@ botao_processar = st.button(
 if botao_processar:
     try:
         with st.spinner(
-            "Lendo e comparando as bases..."
+            "Conciliando individualmente as audiências..."
         ):
             carteira = pd.read_excel(
                 arquivo_carteira
@@ -135,7 +135,8 @@ if botao_processar:
             indicador_4,
             indicador_5,
             indicador_6,
-        ) = st.columns(4)
+            indicador_7,
+        ) = st.columns(5)
 
         indicador_3.metric(
             "Processos ausentes",
@@ -145,20 +146,27 @@ if botao_processar:
         )
 
         indicador_4.metric(
+            "Audiências adicionais",
+            resultado[
+                "total_adicionais"
+            ],
+        )
+
+        indicador_5.metric(
             "Data divergente",
             resultado[
                 "total_divergencias_data"
             ],
         )
 
-        indicador_5.metric(
+        indicador_6.metric(
             "Horário divergente",
             resultado[
                 "total_divergencias_horario"
             ],
         )
 
-        indicador_6.metric(
+        indicador_7.metric(
             "Conferidas",
             resultado[
                 "total_conferidas"
@@ -177,8 +185,8 @@ if botao_processar:
 
         if inconsistencias.empty:
             st.success(
-                "Todas as audiências foram encontradas "
-                "na pauta interna com a mesma data e horário."
+                "Todas as audiências foram conciliadas "
+                "com eventos correspondentes na pauta interna."
             )
 
         else:
@@ -196,12 +204,14 @@ if botao_processar:
 
         (
             aba_ausentes,
+            aba_adicionais,
             aba_data,
             aba_horario,
             aba_conferidas,
         ) = st.tabs(
             [
                 "Processos ausentes",
+                "Audiências adicionais",
                 "Divergências de data",
                 "Divergências de horário",
                 "Conferidas",
@@ -209,72 +219,79 @@ if botao_processar:
         )
 
         with aba_ausentes:
-            ausentes = resultado[
-                "ausentes"
-            ]
-
-            if ausentes.empty:
+            if resultado["ausentes"].empty:
                 st.success(
-                    "Nenhum processo está ausente "
-                    "da pauta interna."
+                    "Nenhum processo está totalmente "
+                    "ausente da pauta interna."
                 )
             else:
                 st.dataframe(
-                    ausentes,
+                    resultado["ausentes"],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+        with aba_adicionais:
+            if resultado["adicionais"].empty:
+                st.success(
+                    "Nenhuma audiência adicional "
+                    "não cadastrada foi identificada."
+                )
+            else:
+                st.write(
+                    """
+                    O processo existe na pauta interna,
+                    mas todas as linhas disponíveis já foram
+                    conciliadas com outras audiências do TRT.
+                    """
+                )
+
+                st.dataframe(
+                    resultado["adicionais"],
                     use_container_width=True,
                     hide_index=True,
                 )
 
         with aba_data:
-            divergencias_data = resultado[
+            if resultado[
                 "divergencias_data"
-            ]
-
-            if divergencias_data.empty:
+            ].empty:
                 st.success(
                     "Nenhuma divergência de data "
                     "foi identificada."
                 )
             else:
                 st.dataframe(
-                    divergencias_data,
+                    resultado[
+                        "divergencias_data"
+                    ],
                     use_container_width=True,
                     hide_index=True,
                 )
 
         with aba_horario:
-            divergencias_horario = resultado[
+            if resultado[
                 "divergencias_horario"
-            ]
-
-            if divergencias_horario.empty:
+            ].empty:
                 st.success(
                     "Nenhuma divergência de horário "
                     "foi identificada."
                 )
             else:
                 st.dataframe(
-                    divergencias_horario,
+                    resultado[
+                        "divergencias_horario"
+                    ],
                     use_container_width=True,
                     hide_index=True,
                 )
 
         with aba_conferidas:
-            conferidas = resultado[
-                "conferidas"
-            ]
-
-            if conferidas.empty:
-                st.warning(
-                    "Nenhuma audiência foi classificada "
-                    "como conferida."
-                )
-            else:
-                st.dataframe(
-                    conferidas,
-                    use_container_width=True,
-                    hide_index=True,
-                )
+            st.dataframe(
+                resultado["conferidas"],
+                use_container_width=True,
+                hide_index=True,
+            )
 
         arquivo_excel = gerar_excel_resultado(
             resultado
@@ -286,7 +303,7 @@ if botao_processar:
             label="Baixar resultado detalhado em Excel",
             data=arquivo_excel,
             file_name=(
-                "resultado_detalhado_conferencia_audiencias.xlsx"
+                "resultado_conciliacao_audiencias.xlsx"
             ),
             mime=(
                 "application/vnd.openxmlformats-"
