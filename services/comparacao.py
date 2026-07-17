@@ -1,6 +1,7 @@
 import re
 import unicodedata
 from io import BytesIO
+from typing import Optional
 
 import pandas as pd
 
@@ -10,12 +11,10 @@ PADRAO_PROCESSO_CNJ = re.compile(
 )
 
 
-def normalizar_texto(valor):
+def normalizar_texto(valor: object) -> str:
     """
-    Normaliza textos para comparação de nomes de colunas:
-    - remove acentos;
-    - converte para minúsculas;
-    - elimina espaços excedentes.
+    Normaliza textos para localizar nomes de colunas,
+    ignorando acentos, maiúsculas, minúsculas e espaços.
     """
     texto = str(valor).strip().lower()
 
@@ -39,10 +38,12 @@ def normalizar_texto(valor):
     return texto
 
 
-def localizar_coluna(dataframe, nomes_possiveis):
+def localizar_coluna(
+    dataframe: pd.DataFrame,
+    nomes_possiveis: list[str],
+) -> Optional[str]:
     """
-    Localiza uma coluna sem depender de acentos,
-    maiúsculas ou espaços invisíveis.
+    Localiza uma coluna com base em diferentes nomes possíveis.
     """
     mapa_colunas = {
         normalizar_texto(coluna): coluna
@@ -58,7 +59,7 @@ def localizar_coluna(dataframe, nomes_possiveis):
     return None
 
 
-def extrair_numero_processo(valor):
+def extrair_numero_processo(valor: object) -> Optional[str]:
     """
     Extrai o número CNJ completo de qualquer texto.
 
@@ -83,10 +84,9 @@ def extrair_numero_processo(valor):
     return None
 
 
-def normalizar_hora(valor):
+def normalizar_hora(valor: object) -> Optional[str]:
     """
-    Converte diferentes representações de horário
-    para o padrão HH:MM.
+    Converte diferentes formatos de horário para HH:MM.
     """
     if pd.isna(valor):
         return None
@@ -94,7 +94,7 @@ def normalizar_hora(valor):
     if hasattr(valor, "strftime"):
         try:
             return valor.strftime("%H:%M")
-        except ValueError:
+        except (ValueError, TypeError):
             pass
 
     texto = str(valor).strip()
@@ -127,7 +127,9 @@ def normalizar_hora(valor):
     return None
 
 
-def preparar_carteira(carteira):
+def preparar_carteira(
+    carteira: pd.DataFrame,
+) -> tuple[pd.DataFrame, Optional[str]]:
     """
     Valida e prepara a carteira de processos.
     """
@@ -138,9 +140,17 @@ def preparar_carteira(carteira):
 
     if coluna_processo is None:
         raise ValueError(
-            "A carteira deve possuir uma coluna chamada "
-            "'Processo'."
+            "A carteira deve possuir uma coluna chamada 'Processo'."
         )
+
+    coluna_cliente = localizar_coluna(
+        carteira,
+        [
+            "Cliente",
+            "Cliente do processo",
+            "Cliente do Processo",
+        ],
+    )
 
     resultado = carteira.copy()
 
@@ -156,21 +166,15 @@ def preparar_carteira(carteira):
         subset=["Processo_Normalizado"]
     )
 
-    coluna_cliente = localizar_coluna(
-        resultado,
-        [
-            "Cliente",
-            "Cliente do processo",
-        ],
-    )
-
     return resultado, coluna_cliente
 
 
-def preparar_base_trt(trt):
+def preparar_base_trt(
+    trt: pd.DataFrame,
+) -> tuple[pd.DataFrame, str, str]:
     """
-    Prepara a base do TRT e mantém somente registros
-    que possuem audiência com data e horário.
+    Prepara a base do TRT e mantém apenas registros
+    que tenham processo, data e horário de audiência.
     """
     coluna_processo = localizar_coluna(
         trt,
@@ -203,20 +207,20 @@ def preparar_base_trt(trt):
 
     if coluna_processo is None:
         raise ValueError(
-            "Não foi localizada a coluna do número do "
-            "processo na base do TRT."
+            "Não foi localizada a coluna do número do processo "
+            "na base do TRT."
         )
 
     if coluna_data is None:
         raise ValueError(
-            "Não foi localizada a coluna da data da "
-            "audiência na base do TRT."
+            "Não foi localizada a coluna da data da audiência "
+            "na base do TRT."
         )
 
     if coluna_hora is None:
         raise ValueError(
-            "Não foi localizada a coluna do horário da "
-            "audiência na base do TRT."
+            "Não foi localizada a coluna do horário da audiência "
+            "na base do TRT."
         )
 
     resultado = trt.copy()
@@ -235,9 +239,17 @@ def preparar_base_trt(trt):
         datas.dt.strftime("%Y-%m-%d")
     )
 
+    resultado["Data_TRT_Exibicao"] = (
+        datas.dt.strftime("%d/%m/%Y")
+    )
+
     resultado["Hora_Normalizada"] = resultado[
         coluna_hora
     ].apply(normalizar_hora)
+
+    resultado["Hora_TRT_Exibicao"] = resultado[
+        "Hora_Normalizada"
+    ]
 
     resultado = resultado.dropna(
         subset=[
@@ -245,7 +257,7 @@ def preparar_base_trt(trt):
             "Data_Normalizada",
             "Hora_Normalizada",
         ]
-    )
+    ).copy()
 
     resultado = resultado[
         resultado["Data_Normalizada"].ne("")
@@ -254,13 +266,14 @@ def preparar_base_trt(trt):
 
     return (
         resultado,
-        coluna_processo,
         coluna_data,
         coluna_hora,
     )
 
 
-def preparar_pauta_interna(pauta):
+def preparar_pauta_interna(
+    pauta: pd.DataFrame,
+) -> pd.DataFrame:
     """
     Prepara a pauta interna.
     """
@@ -311,6 +324,10 @@ def preparar_pauta_interna(pauta):
         data_hora.dt.strftime("%Y-%m-%d")
     )
 
+    resultado["Data_Pauta_Exibicao"] = (
+        data_hora.dt.strftime("%d/%m/%Y")
+    )
+
     resultado["Hora_Normalizada"] = (
         data_hora.dt.strftime("%H:%M")
     )
@@ -322,85 +339,279 @@ def preparar_pauta_interna(pauta):
     return resultado
 
 
-def criar_chave_audiencia(dataframe):
+def formatar_lista_valores(
+    valores: list[str],
+) -> str:
     """
-    Cria a chave técnica:
-    processo + data + horário.
+    Remove vazios, elimina duplicidades e organiza
+    valores para apresentação na planilha.
     """
-    resultado = dataframe.copy()
+    valores_validos = {
+        str(valor).strip()
+        for valor in valores
+        if pd.notna(valor)
+        and str(valor).strip()
+        and str(valor).strip().lower() != "nan"
+    }
 
-    resultado["Chave_Audiencia"] = (
-        resultado["Processo_Normalizado"]
-        + "|"
-        + resultado["Data_Normalizada"].fillna("")
-        + "|"
-        + resultado["Hora_Normalizada"].fillna("")
+    return ", ".join(
+        sorted(valores_validos)
+    )
+
+
+def construir_indice_pauta(
+    pauta: pd.DataFrame,
+) -> dict[str, pd.DataFrame]:
+    """
+    Agrupa os registros da pauta interna por processo.
+    """
+    indice = {}
+
+    for processo, grupo in pauta.groupby(
+        "Processo_Normalizado"
+    ):
+        indice[processo] = grupo.copy()
+
+    return indice
+
+
+def diagnosticar_audiencia(
+    linha_trt: pd.Series,
+    indice_pauta: dict[str, pd.DataFrame],
+) -> dict[str, str]:
+    """
+    Diagnostica uma audiência do TRT.
+
+    Ordem lógica:
+    1. Processo ausente;
+    2. Data divergente;
+    3. Horário divergente;
+    4. Conferida.
+    """
+    processo = linha_trt[
+        "Processo_Normalizado"
+    ]
+
+    data_trt = linha_trt[
+        "Data_Normalizada"
+    ]
+
+    hora_trt = linha_trt[
+        "Hora_Normalizada"
+    ]
+
+    if processo not in indice_pauta:
+        return {
+            "Status_Conferencia": (
+                "PROCESSO AUSENTE DA PAUTA INTERNA"
+            ),
+            "Divergencia": (
+                "O processo não foi localizado na pauta interna."
+            ),
+            "Datas_Encontradas_Pauta": "",
+            "Horarios_Encontrados_Pauta": "",
+        }
+
+    registros_processo = indice_pauta[
+        processo
+    ]
+
+    datas_encontradas = formatar_lista_valores(
+        registros_processo[
+            "Data_Pauta_Exibicao"
+        ].tolist()
+    )
+
+    registros_mesma_data = registros_processo[
+        registros_processo[
+            "Data_Normalizada"
+        ].eq(data_trt)
+    ]
+
+    if registros_mesma_data.empty:
+        return {
+            "Status_Conferencia": (
+                "DIVERGÊNCIA DE DATA"
+            ),
+            "Divergencia": (
+                "O processo existe na pauta interna, "
+                "mas não foi localizado na mesma data do TRT."
+            ),
+            "Datas_Encontradas_Pauta": (
+                datas_encontradas
+            ),
+            "Horarios_Encontrados_Pauta": (
+                formatar_lista_valores(
+                    registros_processo[
+                        "Hora_Normalizada"
+                    ].tolist()
+                )
+            ),
+        }
+
+    horarios_mesma_data = formatar_lista_valores(
+        registros_mesma_data[
+            "Hora_Normalizada"
+        ].tolist()
+    )
+
+    existe_horario_exato = (
+        registros_mesma_data[
+            "Hora_Normalizada"
+        ].eq(hora_trt)
+    ).any()
+
+    if not existe_horario_exato:
+        return {
+            "Status_Conferencia": (
+                "DIVERGÊNCIA DE HORÁRIO"
+            ),
+            "Divergencia": (
+                "O processo e a data foram localizados, "
+                "mas o horário da pauta interna é diferente "
+                "do horário informado pelo TRT."
+            ),
+            "Datas_Encontradas_Pauta": (
+                formatar_lista_valores(
+                    registros_mesma_data[
+                        "Data_Pauta_Exibicao"
+                    ].tolist()
+                )
+            ),
+            "Horarios_Encontrados_Pauta": (
+                horarios_mesma_data
+            ),
+        }
+
+    return {
+        "Status_Conferencia": "CONFERIDA",
+        "Divergencia": "",
+        "Datas_Encontradas_Pauta": (
+            formatar_lista_valores(
+                registros_mesma_data[
+                    "Data_Pauta_Exibicao"
+                ].tolist()
+            )
+        ),
+        "Horarios_Encontrados_Pauta": (
+            horarios_mesma_data
+        ),
+    }
+
+
+def localizar_coluna_opcional(
+    dataframe: pd.DataFrame,
+    nomes_possiveis: list[str],
+) -> Optional[str]:
+    """
+    Retorna uma coluna opcional sem gerar erro quando
+    ela não existir.
+    """
+    return localizar_coluna(
+        dataframe,
+        nomes_possiveis,
+    )
+
+
+def montar_resultado_exibicao(
+    dataframe: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Organiza e renomeia as colunas do resultado.
+    """
+    colunas_desejadas = [
+        "Processo_Normalizado",
+        "Cliente",
+        "Data_TRT_Exibicao",
+        "Hora_TRT_Exibicao",
+        "Datas_Encontradas_Pauta",
+        "Horarios_Encontrados_Pauta",
+        "Status_Conferencia",
+        "Divergencia",
+    ]
+
+    coluna_orgao = localizar_coluna_opcional(
+        dataframe,
+        [
+            "Órgão Julgador",
+            "Orgao Julgador",
+        ],
+    )
+
+    coluna_classe = localizar_coluna_opcional(
+        dataframe,
+        ["Classe Judicial"],
+    )
+
+    coluna_polo_ativo = localizar_coluna_opcional(
+        dataframe,
+        ["Polo Ativo"],
+    )
+
+    coluna_polo_passivo = localizar_coluna_opcional(
+        dataframe,
+        ["Polo Passivo"],
+    )
+
+    coluna_status_processo = localizar_coluna_opcional(
+        dataframe,
+        ["Status do Processo"],
+    )
+
+    for coluna_opcional in [
+        coluna_orgao,
+        coluna_classe,
+        coluna_polo_ativo,
+        coluna_polo_passivo,
+        coluna_status_processo,
+    ]:
+        if (
+            coluna_opcional is not None
+            and coluna_opcional
+            not in colunas_desejadas
+        ):
+            colunas_desejadas.append(
+                coluna_opcional
+            )
+
+    colunas_existentes = [
+        coluna
+        for coluna in colunas_desejadas
+        if coluna in dataframe.columns
+    ]
+
+    resultado = dataframe[
+        colunas_existentes
+    ].copy()
+
+    mapa_renomeacao = {
+        "Processo_Normalizado": "Processo",
+        "Data_TRT_Exibicao": "Data da Audiência - TRT",
+        "Hora_TRT_Exibicao": "Hora da Audiência - TRT",
+        "Datas_Encontradas_Pauta": (
+            "Data(s) encontrada(s) na Pauta Interna"
+        ),
+        "Horarios_Encontrados_Pauta": (
+            "Horário(s) encontrado(s) na Pauta Interna"
+        ),
+        "Status_Conferencia": "Status da Conferência",
+        "Divergencia": "Descrição da Divergência",
+    }
+
+    resultado = resultado.rename(
+        columns=mapa_renomeacao
     )
 
     return resultado
 
 
-def obter_colunas_resultado(
-    dataframe,
-    coluna_data_trt,
-    coluna_hora_trt,
-):
-    """
-    Seleciona as colunas relevantes disponíveis
-    na base do TRT.
-    """
-    nomes_desejados = [
-        "Processo_Normalizado",
-        "Cliente",
-        coluna_data_trt,
-        coluna_hora_trt,
-        localizar_coluna(
-            dataframe,
-            ["Órgão Julgador", "Orgao Julgador"],
-        ),
-        localizar_coluna(
-            dataframe,
-            ["Classe Judicial"],
-        ),
-        localizar_coluna(
-            dataframe,
-            ["Polo Ativo"],
-        ),
-        localizar_coluna(
-            dataframe,
-            ["Polo Passivo"],
-        ),
-        localizar_coluna(
-            dataframe,
-            ["Status do Processo"],
-        ),
-    ]
-
-    return [
-        coluna
-        for coluna in nomes_desejados
-        if coluna is not None
-        and coluna in dataframe.columns
-    ]
-
-
 def realizar_conferencia(
-    carteira,
-    trt,
-    pauta_interna,
-):
+    carteira: pd.DataFrame,
+    trt: pd.DataFrame,
+    pauta_interna: pd.DataFrame,
+) -> dict:
     """
-    Classifica as audiências da carteira em:
-
-    1. AUSENTE DA PAUTA INTERNA:
-       o processo não aparece na pauta interna.
-
-    2. DIVERGÊNCIA DE DATA/HORÁRIO:
-       o processo aparece, mas não há correspondência
-       exata da audiência do TRT.
-
-    3. CONFERIDA:
-       processo, data e horário coincidem.
+    Executa toda a conferência das audiências.
     """
     (
         carteira_preparada,
@@ -412,8 +623,7 @@ def realizar_conferencia(
     (
         trt_preparado,
         _,
-        coluna_data_trt,
-        coluna_hora_trt,
+        _,
     ) = preparar_base_trt(
         trt
     )
@@ -433,50 +643,6 @@ def realizar_conferencia(
             "Processo_Normalizado"
         ].isin(processos_carteira)
     ].copy()
-
-    audiencias_carteira = criar_chave_audiencia(
-        audiencias_carteira
-    )
-
-    pauta_preparada = criar_chave_audiencia(
-        pauta_preparada
-    )
-
-    processos_pauta = set(
-        pauta_preparada[
-            "Processo_Normalizado"
-        ]
-    )
-
-    chaves_pauta = set(
-        pauta_preparada[
-            "Chave_Audiencia"
-        ]
-    )
-
-    def classificar(linha):
-        processo = linha[
-            "Processo_Normalizado"
-        ]
-
-        chave = linha[
-            "Chave_Audiencia"
-        ]
-
-        if processo not in processos_pauta:
-            return "AUSENTE DA PAUTA INTERNA"
-
-        if chave not in chaves_pauta:
-            return "DIVERGÊNCIA DE DATA/HORÁRIO"
-
-        return "CONFERIDA"
-
-    audiencias_carteira[
-        "Status_Conferencia"
-    ] = audiencias_carteira.apply(
-        classificar,
-        axis=1,
-    )
 
     if coluna_cliente is not None:
         clientes = carteira_preparada[
@@ -499,62 +665,106 @@ def realizar_conferencia(
                 on="Processo_Normalizado",
             )
         )
+    else:
+        audiencias_carteira[
+            "Cliente"
+        ] = ""
+
+    indice_pauta = construir_indice_pauta(
+        pauta_preparada
+    )
+
+    diagnosticos = audiencias_carteira.apply(
+        lambda linha: diagnosticar_audiencia(
+            linha,
+            indice_pauta,
+        ),
+        axis=1,
+        result_type="expand",
+    )
+
+    audiencias_carteira = pd.concat(
+        [
+            audiencias_carteira.reset_index(
+                drop=True
+            ),
+            diagnosticos.reset_index(
+                drop=True
+            ),
+        ],
+        axis=1,
+    )
 
     ausentes = audiencias_carteira[
         audiencias_carteira[
             "Status_Conferencia"
-        ].eq("AUSENTE DA PAUTA INTERNA")
+        ].eq(
+            "PROCESSO AUSENTE DA PAUTA INTERNA"
+        )
     ].copy()
 
-    divergencias = audiencias_carteira[
+    divergencias_data = audiencias_carteira[
         audiencias_carteira[
             "Status_Conferencia"
-        ].eq("DIVERGÊNCIA DE DATA/HORÁRIO")
+        ].eq(
+            "DIVERGÊNCIA DE DATA"
+        )
+    ].copy()
+
+    divergencias_horario = audiencias_carteira[
+        audiencias_carteira[
+            "Status_Conferencia"
+        ].eq(
+            "DIVERGÊNCIA DE HORÁRIO"
+        )
     ].copy()
 
     conferidas = audiencias_carteira[
         audiencias_carteira[
             "Status_Conferencia"
-        ].eq("CONFERIDA")
-    ].copy()
-
-    colunas_resultado = obter_colunas_resultado(
-        audiencias_carteira,
-        coluna_data_trt,
-        coluna_hora_trt,
-    )
-
-    colunas_resultado.append(
-        "Status_Conferencia"
-    )
-
-    ausentes = ausentes[
-        colunas_resultado
-    ].copy()
-
-    divergencias = divergencias[
-        colunas_resultado
-    ].copy()
-
-    conferidas = conferidas[
-        colunas_resultado
-    ].copy()
-
-    for dataframe in [
-        ausentes,
-        divergencias,
-        conferidas,
-    ]:
-        dataframe.rename(
-            columns={
-                "Processo_Normalizado": "Processo",
-            },
-            inplace=True,
+        ].eq(
+            "CONFERIDA"
         )
+    ].copy()
+
+    inconsistencias = audiencias_carteira[
+        ~audiencias_carteira[
+            "Status_Conferencia"
+        ].eq(
+            "CONFERIDA"
+        )
+    ].copy()
+
+    resultado_completo = montar_resultado_exibicao(
+        audiencias_carteira
+    )
+
+    ausentes = montar_resultado_exibicao(
+        ausentes
+    )
+
+    divergencias_data = montar_resultado_exibicao(
+        divergencias_data
+    )
+
+    divergencias_horario = montar_resultado_exibicao(
+        divergencias_horario
+    )
+
+    inconsistencias = montar_resultado_exibicao(
+        inconsistencias
+    )
+
+    conferidas = montar_resultado_exibicao(
+        conferidas
+    )
 
     return {
+        "resultado_completo": resultado_completo,
+        "inconsistencias": inconsistencias,
         "ausentes": ausentes,
-        "divergencias": divergencias,
+        "divergencias_data": divergencias_data,
+        "divergencias_horario": divergencias_horario,
         "conferidas": conferidas,
         "total_audiencias_trt": len(
             trt_preparado
@@ -565,8 +775,14 @@ def realizar_conferencia(
         "total_ausentes": len(
             ausentes
         ),
-        "total_divergencias": len(
-            divergencias
+        "total_divergencias_data": len(
+            divergencias_data
+        ),
+        "total_divergencias_horario": len(
+            divergencias_horario
+        ),
+        "total_inconsistencias": len(
+            inconsistencias
         ),
         "total_conferidas": len(
             conferidas
@@ -574,37 +790,98 @@ def realizar_conferencia(
     }
 
 
-def gerar_excel_resultado(
-    ausentes,
-    divergencias,
-    conferidas,
-):
+def ajustar_largura_colunas(
+    writer: pd.ExcelWriter,
+    nome_aba: str,
+    dataframe: pd.DataFrame,
+) -> None:
     """
-    Gera o Excel com as três classificações.
+    Ajusta automaticamente a largura das colunas
+    do Excel exportado.
+    """
+    planilha = writer.sheets[
+        nome_aba
+    ]
+
+    for indice, coluna in enumerate(
+        dataframe.columns,
+        start=1,
+    ):
+        maior_tamanho = len(
+            str(coluna)
+        )
+
+        for valor in dataframe[
+            coluna
+        ].astype(str):
+            maior_tamanho = max(
+                maior_tamanho,
+                len(valor),
+            )
+
+        largura = min(
+            maior_tamanho + 2,
+            60,
+        )
+
+        planilha.column_dimensions[
+            planilha.cell(
+                row=1,
+                column=indice,
+            ).column_letter
+        ].width = largura
+
+    planilha.freeze_panes = "A2"
+    planilha.auto_filter.ref = (
+        planilha.dimensions
+    )
+
+
+def gerar_excel_resultado(
+    resultado: dict,
+) -> bytes:
+    """
+    Gera o arquivo Excel com diagnóstico completo.
     """
     arquivo_saida = BytesIO()
+
+    abas = {
+        "INCONSISTENCIAS": resultado[
+            "inconsistencias"
+        ],
+        "PROCESSOS AUSENTES": resultado[
+            "ausentes"
+        ],
+        "DIVERGENCIAS DATA": resultado[
+            "divergencias_data"
+        ],
+        "DIVERGENCIAS HORARIO": resultado[
+            "divergencias_horario"
+        ],
+        "CONFERIDAS": resultado[
+            "conferidas"
+        ],
+        "RESULTADO COMPLETO": resultado[
+            "resultado_completo"
+        ],
+    }
 
     with pd.ExcelWriter(
         arquivo_saida,
         engine="openpyxl",
     ) as writer:
-        ausentes.to_excel(
-            writer,
-            sheet_name="AUSENTES",
-            index=False,
-        )
+        for nome_aba, dataframe in abas.items():
+            dataframe.to_excel(
+                writer,
+                sheet_name=nome_aba,
+                index=False,
+            )
 
-        divergencias.to_excel(
-            writer,
-            sheet_name="DIVERGENCIAS",
-            index=False,
-        )
-
-        conferidas.to_excel(
-            writer,
-            sheet_name="CONFERIDAS",
-            index=False,
-        )
+            ajustar_largura_colunas(
+                writer,
+                nome_aba,
+                dataframe,
+            )
 
     arquivo_saida.seek(0)
 

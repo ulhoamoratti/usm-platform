@@ -21,18 +21,21 @@ st.subheader(
 
 st.write(
     """
-    A ferramenta cruza as audiências agendadas no TRT
-    com a carteira de processos e com a pauta interna.
+    A ferramenta identifica as audiências agendadas no TRT
+    relativas aos processos da carteira e compara cada evento
+    com a pauta interna.
 
-    O resultado separa processos efetivamente ausentes
-    de possíveis divergências de data ou horário.
+    O resultado distingue processos ausentes, divergências
+    de data, divergências de horário e audiências conferidas.
     """
 )
 
 st.divider()
 
 
-coluna_1, coluna_2, coluna_3 = st.columns(3)
+coluna_1, coluna_2, coluna_3 = st.columns(
+    3
+)
 
 
 with coluna_1:
@@ -83,7 +86,7 @@ botao_processar = st.button(
 if botao_processar:
     try:
         with st.spinner(
-            "Comparando as bases..."
+            "Lendo e comparando as bases..."
         ):
             carteira = pd.read_excel(
                 arquivo_carteira
@@ -109,41 +112,53 @@ if botao_processar:
 
         st.divider()
 
-        indicador_1, indicador_2 = st.columns(2)
+        linha_1_coluna_1, linha_1_coluna_2 = (
+            st.columns(2)
+        )
 
-        indicador_1.metric(
+        linha_1_coluna_1.metric(
             "Audiências agendadas no TRT",
             resultado[
                 "total_audiencias_trt"
             ],
         )
 
-        indicador_2.metric(
+        linha_1_coluna_2.metric(
             "Audiências dos seus processos",
             resultado[
                 "total_audiencias_carteira"
             ],
         )
 
-        indicador_3, indicador_4, indicador_5 = (
-            st.columns(3)
-        )
+        (
+            linha_2_coluna_1,
+            linha_2_coluna_2,
+            linha_2_coluna_3,
+            linha_2_coluna_4,
+        ) = st.columns(4)
 
-        indicador_3.metric(
-            "Ausentes da pauta interna",
+        linha_2_coluna_1.metric(
+            "Processos ausentes",
             resultado[
                 "total_ausentes"
             ],
         )
 
-        indicador_4.metric(
-            "Data ou horário divergente",
+        linha_2_coluna_2.metric(
+            "Data divergente",
             resultado[
-                "total_divergencias"
+                "total_divergencias_data"
             ],
         )
 
-        indicador_5.metric(
+        linha_2_coluna_3.metric(
+            "Horário divergente",
+            resultado[
+                "total_divergencias_horario"
+            ],
+        )
+
+        linha_2_coluna_4.metric(
             "Conferidas",
             resultado[
                 "total_conferidas"
@@ -152,89 +167,99 @@ if botao_processar:
 
         st.divider()
 
-        aba_ausentes, aba_divergencias, aba_conferidas = (
-            st.tabs(
-                [
-                    "Ausentes da pauta",
-                    "Divergências",
-                    "Conferidas",
-                ]
+        st.header(
+            "Inconsistências identificadas"
+        )
+
+        inconsistencias = resultado[
+            "inconsistencias"
+        ]
+
+        if inconsistencias.empty:
+            st.success(
+                "Todas as audiências foram encontradas "
+                "na pauta interna com a mesma data e horário."
             )
+
+        else:
+            st.error(
+                f"Foram identificadas "
+                f"{resultado['total_inconsistencias']} "
+                "audiências que exigem conferência."
+            )
+
+            st.dataframe(
+                inconsistencias,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        (
+            aba_ausentes,
+            aba_data,
+            aba_horario,
+            aba_conferidas,
+        ) = st.tabs(
+            [
+                "Processos ausentes",
+                "Divergências de data",
+                "Divergências de horário",
+                "Conferidas",
+            ]
         )
 
         with aba_ausentes:
-            st.header(
-                "Processos sem qualquer registro "
-                "na pauta interna"
-            )
-
             ausentes = resultado[
                 "ausentes"
             ]
 
             if ausentes.empty:
                 st.success(
-                    "Nenhum processo está totalmente "
-                    "ausente da pauta interna."
+                    "Nenhum processo está ausente "
+                    "da pauta interna."
                 )
-
             else:
-                st.error(
-                    f"Foram identificadas "
-                    f"{len(ausentes)} audiências "
-                    "cujos processos não aparecem "
-                    "na pauta interna."
-                )
-
                 st.dataframe(
                     ausentes,
                     use_container_width=True,
                     hide_index=True,
                 )
 
-        with aba_divergencias:
-            st.header(
-                "Processos encontrados com data "
-                "ou horário diferente"
-            )
-
-            divergencias = resultado[
-                "divergencias"
+        with aba_data:
+            divergencias_data = resultado[
+                "divergencias_data"
             ]
 
-            if divergencias.empty:
+            if divergencias_data.empty:
                 st.success(
                     "Nenhuma divergência de data "
-                    "ou horário foi encontrada."
+                    "foi identificada."
                 )
-
             else:
-                st.warning(
-                    f"Foram identificadas "
-                    f"{len(divergencias)} audiências "
-                    "com possível divergência."
-                )
-
-                st.write(
-                    """
-                    Esses processos existem na pauta interna,
-                    mas não foi encontrada correspondência exata
-                    com a data e o horário informados pelo TRT.
-                    """
-                )
-
                 st.dataframe(
-                    divergencias,
+                    divergencias_data,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+        with aba_horario:
+            divergencias_horario = resultado[
+                "divergencias_horario"
+            ]
+
+            if divergencias_horario.empty:
+                st.success(
+                    "Nenhuma divergência de horário "
+                    "foi identificada."
+                )
+            else:
+                st.dataframe(
+                    divergencias_horario,
                     use_container_width=True,
                     hide_index=True,
                 )
 
         with aba_conferidas:
-            st.header(
-                "Audiências com processo, data e horário "
-                "correspondentes"
-            )
-
             st.dataframe(
                 resultado[
                     "conferidas"
@@ -244,24 +269,16 @@ if botao_processar:
             )
 
         arquivo_excel = gerar_excel_resultado(
-            ausentes=resultado[
-                "ausentes"
-            ],
-            divergencias=resultado[
-                "divergencias"
-            ],
-            conferidas=resultado[
-                "conferidas"
-            ],
+            resultado
         )
 
         st.divider()
 
         st.download_button(
-            label="Baixar resultado em Excel",
+            label="Baixar resultado detalhado em Excel",
             data=arquivo_excel,
             file_name=(
-                "resultado_conferencia_audiencias.xlsx"
+                "resultado_detalhado_conferencia_audiencias.xlsx"
             ),
             mime=(
                 "application/vnd.openxmlformats-"
