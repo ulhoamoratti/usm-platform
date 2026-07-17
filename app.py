@@ -112,18 +112,18 @@ if botao_processar:
 
         st.divider()
 
-        linha_1_coluna_1, linha_1_coluna_2 = (
-            st.columns(2)
+        indicador_1, indicador_2 = st.columns(
+            2
         )
 
-        linha_1_coluna_1.metric(
+        indicador_1.metric(
             "Audiências agendadas no TRT",
             resultado[
                 "total_audiencias_trt"
             ],
         )
 
-        linha_1_coluna_2.metric(
+        indicador_2.metric(
             "Audiências dos seus processos",
             resultado[
                 "total_audiencias_carteira"
@@ -131,34 +131,34 @@ if botao_processar:
         )
 
         (
-            linha_2_coluna_1,
-            linha_2_coluna_2,
-            linha_2_coluna_3,
-            linha_2_coluna_4,
+            indicador_3,
+            indicador_4,
+            indicador_5,
+            indicador_6,
         ) = st.columns(4)
 
-        linha_2_coluna_1.metric(
+        indicador_3.metric(
             "Processos ausentes",
             resultado[
                 "total_ausentes"
             ],
         )
 
-        linha_2_coluna_2.metric(
+        indicador_4.metric(
             "Data divergente",
             resultado[
                 "total_divergencias_data"
             ],
         )
 
-        linha_2_coluna_3.metric(
+        indicador_5.metric(
             "Horário divergente",
             resultado[
                 "total_divergencias_horario"
             ],
         )
 
-        linha_2_coluna_4.metric(
+        indicador_6.metric(
             "Conferidas",
             resultado[
                 "total_conferidas"
@@ -260,13 +260,21 @@ if botao_processar:
                 )
 
         with aba_conferidas:
-            st.dataframe(
-                resultado[
-                    "conferidas"
-                ],
-                use_container_width=True,
-                hide_index=True,
-            )
+            conferidas = resultado[
+                "conferidas"
+            ]
+
+            if conferidas.empty:
+                st.warning(
+                    "Nenhuma audiência foi classificada "
+                    "como conferida."
+                )
+            else:
+                st.dataframe(
+                    conferidas,
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
         arquivo_excel = gerar_excel_resultado(
             resultado
