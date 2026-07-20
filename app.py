@@ -13,7 +13,6 @@ modulo = st.sidebar.radio(
     [
         "Conferência de Audiências",
         "Conferência de Subsídios",
-        "Radar Processual",
     ],
 )
 
@@ -28,8 +27,4 @@ if modulo == "Conferência de Audiências":
 
 elif modulo == "Conferência de Subsídios":
     from modules.subsidios import renderizar
-    renderizar()
-
-elif modulo == "Radar Processual":
-    from modules.radar import renderizar
     renderizar()
